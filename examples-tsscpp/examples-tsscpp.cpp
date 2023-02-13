@@ -1,6 +1,6 @@
 // examples-tsscpp.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
-
+//
 #include <iostream>
 #include <Tpm2.h>
 #include <TpmDevice.h>
@@ -48,9 +48,9 @@ int ShutdownTpmSimulator() {
     return 0;
 }
 
-void TestDifferentStructuresOfData()
+void TestDifferentDataStructures()
 {
-    bool singlePcr = false;
+    bool singlePcr = true;
     PCR_ReadResponse pcrVal;
 
     if (singlePcr) {
@@ -65,7 +65,7 @@ void TestDifferentStructuresOfData()
         pcrVal = tpm.PCR_Read(pcrToRead);
     }
     else {
-        vector<UINT32> pcrIndexes = {0, 1, 2, 3, 4};
+        vector<UINT32> pcrIndexes = { 0, 1, 2, 3, 4 };
 
         for (UINT32 pcr : pcrIndexes) {
             tpm.PCR_Event(pcr, tpm.GetRandom(5));
@@ -107,6 +107,29 @@ void GenerateRandomNumbers() {
     cout << "Random bytes: " << rand << endl;
 }
 
+void HMACSessions()
+{
+    // Start a simple HMAC authorization session: no salt, no encryption, no bound-object.
+    AUTH_SESSION s = tpm.StartAuthSession(TPM_SE::HMAC, TPM_ALG_ID::SHA1);
+
+    cout << "Session Infos:\n\n";
+
+    cout << "Is PWAP: " << s.IsPWAP() << endl;
+    cout << "Nonce: " << s.GetNonceTpm() << endl;
+    cout << "Hash algorithm: " << s.GetHashAlg() << endl;
+
+    // Perform an operation authorizing with an HMAC
+    tpm._Sessions(s).Clear(tpm._AdminPlatform);
+
+    // A more terse way of associating an explicit session with a command
+    tpm(s).Clear(tpm._AdminPlatform);
+
+    // And clean up
+    tpm.FlushContext(s);
+
+    return;
+}
+
 int main()
 {
     InitTpm();
@@ -115,7 +138,8 @@ int main()
     cout << "You are using a " << (useSimulator ? "TCP" : "TBS") << " device!\n\n";
 
     GenerateRandomNumbers();
-    TestDifferentStructuresOfData();
+    TestDifferentDataStructures();
+    HMACSessions();
 
     if (useSimulator) {
         ShutdownTpmSimulator();
