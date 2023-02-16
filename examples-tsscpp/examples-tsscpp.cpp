@@ -133,7 +133,6 @@ static const TPMT_SYM_DEF_OBJECT Aes128Cfb{ TPM_ALG_ID::AES, 128, TPM_ALG_ID::CF
 
 TPM_HANDLE MakeStoragePrimary(AUTH_SESSION* sess)
 {
-
     TPMT_PUBLIC storagePrimaryTemplate(TPM_ALG_ID::SHA1,
         TPMA_OBJECT::decrypt | TPMA_OBJECT::restricted
         | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
@@ -148,7 +147,7 @@ TPM_HANDLE MakeStoragePrimary(AUTH_SESSION* sess)
         .handle;
 }
 
-TPM_HANDLE MakeEndorsementKey()
+TpmCpp::CreatePrimaryResponse MakeEndorsementKey()
 {
     TPMT_PUBLIC storagePrimaryTemplate(TPM_ALG_ID::SHA1,
         TPMA_OBJECT::decrypt | TPMA_OBJECT::restricted
@@ -158,8 +157,7 @@ TPM_HANDLE MakeEndorsementKey()
         TPMS_RSA_PARMS(Aes128Cfb, TPMS_NULL_ASYM_SCHEME(), 2048, 65537),
         TPM2B_PUBLIC_KEY_RSA());
     // Create the key
-    return tpm.CreatePrimary(TPM_RH::ENDORSEMENT, {}, storagePrimaryTemplate, {}, {})
-        .handle;
+    return tpm.CreatePrimary(TPM_RH::ENDORSEMENT, {}, storagePrimaryTemplate, {}, {});
 }
 
 void RsaEncryptDecrypt()
@@ -354,44 +352,47 @@ void SigningPrimary()
 {
     // To create a primary key the TPM must be provided with a template.
     // This is for an RSA1024 signing key.
+    vector<BYTE> NullVec;
     TPMT_PUBLIC templ(TPM_ALG_ID::SHA1,
         TPMA_OBJECT::sign |
         TPMA_OBJECT::fixedParent |
         TPMA_OBJECT::fixedTPM |
         TPMA_OBJECT::sensitiveDataOrigin |
         TPMA_OBJECT::userWithAuth,
-        {},
+        NullVec,
         TPMS_RSA_PARMS(
             TPMT_SYM_DEF_OBJECT(),
             TPMS_SCHEME_RSASSA(TPM_ALG_ID::SHA1), 1024, 65537),
-        TPM2B_PUBLIC_KEY_RSA());
+        TPM2B_PUBLIC_KEY_RSA(NullVec));
 
     // Set the use-auth for the key. Note the second parameter is NULL
     // because we are asking the TPM to create a new key.
     ByteVec userAuth = ByteVec{ 1, 2, 3, 4 };
-    TPMS_SENSITIVE_CREATE sensCreate(userAuth, {});
+    TPMS_SENSITIVE_CREATE sensCreate(userAuth, NullVec);
 
     // We don't need to know the PCR-state with the key was created so set this
     // parameter to a {}-vector.
-    std::vector<TPMS_PCR_SELECTION> pcrSelect;
+    vector<TPMS_PCR_SELECTION> pcrSelect{};
 
     // Ask the TPM to create the key
-    auto newPrimary = tpm.CreatePrimary(TPM_RH::OWNER, sensCreate, templ, {}, pcrSelect);
+    CreatePrimaryResponse newPrimary = tpm.CreatePrimary(tpm._AdminOwner, sensCreate, templ, NullVec, pcrSelect);
 
     // Print out the public data for the new key. Note the "false" parameter to
     // ToString() "pretty-prints" the byte-arrays.
     cout << "New RSA primary key" << endl << newPrimary.outPublic.ToString(false) << endl;
-    cout << endl << "endl:" << endl << newPrimary.outPublic.unique.get() << endl << endl << endl;
 
     // Sign something with the new key. First set the auth-value in the handle.
     TPM_HANDLE& signKey = newPrimary.handle;
     signKey.SetAuth(userAuth);
 
-    TPM_HASH dataToSign = TPM_HASH::FromHashOfString(TPM_ALG_ID::SHA1, "abc");
+    TPMT_HA dataToSign = TPMT_HA::FromHashOfString(TPM_ALG_ID::SHA1, "abc");
 
-    auto sig = tpm.Sign(signKey, dataToSign, TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK());
+    auto sig = tpm.Sign(signKey,
+        dataToSign.digest,
+        TPMS_NULL_SIG_SCHEME(),
+        TPMT_TK_HASHCHECK());
 
-    cout << "Signature:" << endl << sig->ToString() << endl;
+    cout << "Signature:" << endl << sig->ToString(false) << endl;
 
     // Use TSS.C++ to validate the signature
     bool sigOk = newPrimary.outPublic.ValidateSignature(dataToSign, *sig);
@@ -418,7 +419,18 @@ int main()
 
     //RsaEncryptDecrypt();
     //PrimaryKeys(); // working
-    //SigningPrimary();
+    SigningPrimary(); // working
+
+    //{
+        //TpmCpp::CreatePrimaryResponse keyResponse = MakeEndorsementKey();
+
+        //cout << keyResponse.Serialize(SerializationType::JSON) << endl;
+
+        //auto unique = keyResponse.outPublic.unique;
+
+        //cout << unique->toBytes() << endl;
+    //}
+
 
     //TPM_HANDLE ekHandle = MakeEndorsementKey();
     //cout << ekHandle.handle << endl;
