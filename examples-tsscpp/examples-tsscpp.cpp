@@ -6,6 +6,9 @@
 #include <TpmDevice.h>
 #include <TpmTypes.h>
 
+#include <botan/botan.h>
+#include <botan/rsa.h>
+
 using namespace std;
 using namespace TpmCpp;
 
@@ -419,7 +422,24 @@ int main()
 
     //RsaEncryptDecrypt();
     //PrimaryKeys(); // working
-    SigningPrimary(); // working
+    //SigningPrimary(); // working
+
+    auto response = MakeEndorsementKey();
+
+    auto mod = response.outPublic.unique->toBytes();
+    auto rsaPublicKey = Botan::RSA_PublicKey(Botan::BigInt(mod.data(), mod.size()), 65537);
+
+    auto pemFormatKey = Botan::X509::PEM_encode(rsaPublicKey);
+    std::cout << pemFormatKey << std::endl;
+
+    std::string filtered = pemFormatKey.substr(27, pemFormatKey.size() - 53);
+
+    cout << filtered << endl;
+
+    //std::cout << pemFormatKey.substr(26, pemFormatKey.size() - 26) << std::endl;
+
+
+   
 
     //{
         //TpmCpp::CreatePrimaryResponse keyResponse = MakeEndorsementKey();
