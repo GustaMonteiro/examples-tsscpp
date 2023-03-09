@@ -432,9 +432,20 @@ int main()
     auto pemFormatKey = Botan::X509::PEM_encode(rsaPublicKey);
     std::cout << pemFormatKey << std::endl;
 
+    pemFormatKey.erase(std::remove(pemFormatKey.begin(), pemFormatKey.end(), '\n'), pemFormatKey.cend());
+    
+    std::string filtered = pemFormatKey.substr(26, pemFormatKey.size() - 50);
+
+    std::cout << filtered << std::endl;
+
+    /*
     std::string filtered = pemFormatKey.substr(27, pemFormatKey.size() - 53);
 
+    filtered.erase(std::remove(filtered.begin(), filtered.end(), '\n'), filtered.cend());
     cout << filtered << endl;
+
+    
+    cout << filtered << endl;*/
 
     //std::cout << pemFormatKey.substr(26, pemFormatKey.size() - 26) << std::endl;
 
