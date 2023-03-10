@@ -16,7 +16,7 @@ Tpm2 tpm;
 TpmTbsDevice deviceTbs;
 TpmTcpDevice deviceTcp;
 
-bool useSimulator = true;
+bool useSimulator = false;
 
 int InitTpm() {
     if (useSimulator) {
@@ -405,6 +405,18 @@ void SigningPrimary()
     tpm.FlushContext(newPrimary.handle);
 } // SigningPrimary()
 
+std::string getEkPublicPem(TpmCpp::CreatePrimaryResponse ek) {
+    auto mod = ek.outPublic.unique->toBytes();
+    auto rsaPublicKey = Botan::RSA_PublicKey(Botan::BigInt(mod.data(), mod.size()), 65537);
+
+    auto pemFormatKey = Botan::X509::PEM_encode(rsaPublicKey);
+    std::cout << pemFormatKey << std::endl;
+
+    pemFormatKey.erase(std::remove(pemFormatKey.begin(), pemFormatKey.end(), '\n'), pemFormatKey.cend());
+
+    return pemFormatKey.substr(26, pemFormatKey.size() - 52);
+} // getEkPublicPem()
+
 int main()
 {
     InitTpm();
@@ -423,20 +435,9 @@ int main()
     //RsaEncryptDecrypt();
     //PrimaryKeys(); // working
     //SigningPrimary(); // working
-
-    auto response = MakeEndorsementKey();
-
-    auto mod = response.outPublic.unique->toBytes();
-    auto rsaPublicKey = Botan::RSA_PublicKey(Botan::BigInt(mod.data(), mod.size()), 65537);
-
-    auto pemFormatKey = Botan::X509::PEM_encode(rsaPublicKey);
-    std::cout << pemFormatKey << std::endl;
-
-    pemFormatKey.erase(std::remove(pemFormatKey.begin(), pemFormatKey.end(), '\n'), pemFormatKey.cend());
     
-    std::string filtered = pemFormatKey.substr(26, pemFormatKey.size() - 50);
-
-    std::cout << filtered << std::endl;
+    auto ek = MakeEndorsementKey();
+    std::cout << getEkPublicPem(ek) << std::endl;
 
     /*
     std::string filtered = pemFormatKey.substr(27, pemFormatKey.size() - 53);
