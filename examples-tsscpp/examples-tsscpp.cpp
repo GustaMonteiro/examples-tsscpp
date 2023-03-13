@@ -149,7 +149,22 @@ TPM_HANDLE MakeStoragePrimary(AUTH_SESSION* sess)
     return tpm.CreatePrimary(TPM_RH::OWNER, {}, storagePrimaryTemplate, {}, {})
         .handle;
 }
+CreateResponse MakeChildSigningKey(TPM_HANDLE parent, bool restricted)
+{
+    TPMA_OBJECT restrictedAttribute = restricted ? TPMA_OBJECT::restricted : 0;
 
+    TPMT_PUBLIC templ(TPM_ALG_ID::SHA1,
+        TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
+        | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth | restrictedAttribute,
+        {},  // No policy
+        TPMS_RSA_PARMS({}, TPMS_SCHEME_RSASSA(TPM_ALG_ID::SHA1), 2048, 65537), // PKCS1.5
+        TPM2B_PUBLIC_KEY_RSA());
+
+    return tpm.Create(parent, {}, templ, {}, {});
+
+    
+    //return tpm.Load(parent, newSigningKey.outPrivate, newSigningKey.outPublic);
+}
 TpmCpp::CreatePrimaryResponse MakeEndorsementKey()
 {
     TPMT_PUBLIC storagePrimaryTemplate(TPM_ALG_ID::SHA1,
@@ -417,6 +432,18 @@ std::string getEkPublicPem(TpmCpp::CreatePrimaryResponse ek) {
     return pemFormatKey.substr(26, pemFormatKey.size() - 52);
 } // getEkPublicPem()
 
+std::string getAkPublicPem(TpmCpp::CreateResponse ak) {
+    auto mod = ak.outPublic.unique->toBytes();
+    auto rsaPublicKey = Botan::RSA_PublicKey(Botan::BigInt(mod.data(), mod.size()), 65537);
+
+    auto pemFormatKey = Botan::X509::PEM_encode(rsaPublicKey);
+    std::cout << pemFormatKey << std::endl;
+
+    pemFormatKey.erase(std::remove(pemFormatKey.begin(), pemFormatKey.end(), '\n'), pemFormatKey.cend());
+
+    return pemFormatKey.substr(26, pemFormatKey.size() - 52);
+} // getAkPublicPem()
+
 int main()
 {
     InitTpm();
@@ -437,7 +464,21 @@ int main()
     //SigningPrimary(); // working
     
     auto ek = MakeEndorsementKey();
-    std::cout << getEkPublicPem(ek) << std::endl;
+    //std::cout << getEkPublicPem(ek) << endl << std::endl;
+
+    TPM_HANDLE ekHandle = ek.handle;
+
+    auto ak = MakeChildSigningKey(ekHandle, true);
+    //cout << getAkPublicPem(ak) << endl;
+
+    cout << ak.ToString() << endl << endl;
+
+    auto sigKey = tpm.Load(ekHandle, ak.outPrivate, ak.outPublic);
+
+    auto keyInfo = tpm.Certify(sigKey, sigKey, tpm.GetRandom(32), TPMS_NULL_SIG_SCHEME());
+
+    cout << keyInfo.ToString() << endl << endl;
+
 
     /*
     std::string filtered = pemFormatKey.substr(27, pemFormatKey.size() - 53);
