@@ -11,6 +11,13 @@
 #include <botan/botan.h>
 #include <botan/rsa.h>
 
+#include <curlpp/cURLpp.hpp>
+#include <curlpp/Easy.hpp>
+#include <curlpp/Options.hpp>
+
+#include <json/json.h>
+#include <memory>
+
 using namespace std;
 using namespace TpmCpp;
 
@@ -504,6 +511,11 @@ int main()
     auto keyInfo = tpm.Certify(sigKey, sigKey, tpm.GetRandom(32), TPMS_NULL_SIG_SCHEME());
 
     cout << keyInfo.ToString() << endl << endl;
+
+    auto Public = base64_encode(ak.outPublic.toBytes());
+    Public.erase(std::remove(Public.begin(), Public.end(), '\n'), Public.cend());
+
+    cout << Public << endl << endl;
 
     auto CreateData = base64_encode(ak.creationData.toBytes());
     CreateData.erase(std::remove(CreateData.begin(), CreateData.end(), '\n'), CreateData.cend());
