@@ -6,6 +6,8 @@
 #include <TpmDevice.h>
 #include <TpmTypes.h>
 
+#include <openssl/bio.h>
+
 #include <botan/botan.h>
 #include <botan/rsa.h>
 
@@ -444,6 +446,30 @@ std::string getAkPublicPem(TpmCpp::CreateResponse ak) {
     return pemFormatKey.substr(26, pemFormatKey.size() - 52);
 } // getAkPublicPem()
 
+#include <openssl/bio.h>
+#include <openssl/buffer.h>
+#include <openssl/evp.h>
+#include <string>
+
+std::string base64_encode(const ByteVec input) {
+    BIO* bio, * b64;
+    BUF_MEM* bufferPtr;
+
+    b64 = BIO_new(BIO_f_base64());
+    bio = BIO_new(BIO_s_mem());
+    bio = BIO_push(b64, bio);
+
+    BIO_write(bio, input.data(), input.size());
+    BIO_flush(bio);
+    BIO_get_mem_ptr(bio, &bufferPtr);
+
+    std::string output(bufferPtr->data, bufferPtr->length);
+
+    BIO_free_all(bio);
+
+    return output;
+}
+
 int main()
 {
     InitTpm();
@@ -478,6 +504,21 @@ int main()
     auto keyInfo = tpm.Certify(sigKey, sigKey, tpm.GetRandom(32), TPMS_NULL_SIG_SCHEME());
 
     cout << keyInfo.ToString() << endl << endl;
+
+    auto CreateData = base64_encode(ak.creationData.toBytes());
+    CreateData.erase(std::remove(CreateData.begin(), CreateData.end(), '\n'), CreateData.cend());
+
+    cout << CreateData << endl << endl;
+
+    auto CreateAttestation = base64_encode(keyInfo.certifyInfo.toBytes());
+    CreateAttestation.erase(std::remove(CreateAttestation.begin(), CreateAttestation.end(), '\n'), CreateAttestation.cend());
+
+    cout << CreateAttestation << endl << endl;
+
+    auto CreateSignature = base64_encode(keyInfo.signature->toBytes());
+    CreateSignature.erase(std::remove(CreateSignature.begin(), CreateSignature.end(), '\n'), CreateSignature.cend());
+
+    cout << CreateSignature << endl << endl;
 
 
     /*
