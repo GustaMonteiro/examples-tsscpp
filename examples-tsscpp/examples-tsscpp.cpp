@@ -512,6 +512,8 @@ int main()
 
     cout << keyInfo.ToString() << endl << endl;
 
+    auto ekPub = getEkPublicPem(ek);
+
     auto Public = base64_encode(ak.outPublic.toBytes());
     Public.erase(std::remove(Public.begin(), Public.end(), '\n'), Public.cend());
 
@@ -532,6 +534,76 @@ int main()
 
     cout << CreateSignature << endl << endl;
 
+    try {
+        Json::FastWriter writer;
+        Json::Value root;
+        Json::Value akParameters;
+        //root["ID"] = "30";
+        //root["TPMVersion"] = 2;
+        //root["EKpub"] = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAthSyFeVj8dWdDmJBfYP8ElsPfSna5zR7nDADTuqREKL5KTUAIZmw7JGsC19YP1K/m50M1NMTAyyIeqctTy1vn94vehBrSEotbIVyj/Z45rVDhCcx0Jn4EkjopaoM7xMgt9R/NOCyX8gXLU+F6Afr6lc7R9ob3MIOR+1z7QvnXSN+hMvh9m5dBBYTI+UsJ5w1+z+X69VQu0fGe4c2yL6Vw6SLY6/2lxGKpGTWdoFm+Nn/XojGqTOhPZiQ99T12InlWLkppH5bMVzLUIshaRJPN8rOnMwdkVuChOsNJ+eHExX8TcivIhBMHG1yTRABKEC+serDK/p4f047+XttwDcNNwIDAQAB";
+        //akParameters["Public"] = "AAEACwAFBHIAIJ3/y/NsODrmmfuYaNxty4nXFTiEvigDkiwSQVi/rSKuABAAFAAECAAAAAAAAQC9rmpxiytl2DgwlohkQbGTJ8tvUBRPIL37yhqYnh/fk86qdOFwr8PkZFIicMXt+bWXFDw55GRckfaMAvtNU9+Cnt+/4M8FAdmKT2vw7x9Dh94/VhCnWbJIqkP/mrlOKGS+MY5hBOBFa4bjOIuIPlX3sEb5C0HDnwbJf6wVYOw+gHgOC39vxxIGiqkgrK7YmahcWf3pof6C55I7kiGbr3E4vzcwGQNIMbGDewoO77RY5yb3M7vJRmJTbVbXx4U12lZCxCk4IddqOYUvp+xlx6WeoyyyuyUc8i1Gc3dMbUGf0DTjJKLd27G9uCb9MQWbcvBxS1ICc1kaA/gxR8zC3cqb";
+        //akParameters["UseTCSDActivationFormat"] = false;
+        //akParameters["CreateData"] = "AAAAAAAg47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFUBAAsAIgALOyDqlR1A7yIRtJUe4a8rxHtxVJItEjRTilRv/M5DzkYAIgAL2wSQnCKgLL1TGKUreXra2BFHEkr5koxLbxud+2xQuvsAAA==";
+        //akParameters["CreateAttestation"] = "/1RDR4AaACIAC4R3fzhZJN2pKoO1d7P8IbshfdUXz9+xccZxmRmiyHoeAAAAAAACSPaE7AbYzWWe4Ms+ASQgsS94JzAEACIAC/WcfhxfIDZ83PTSHI6hd53xMiuxNAId589Un8PEc6FsACB9xuiDscZkcaz2KUoBUhQBNi4ijSBI04jKkUlZNyd9Aw==";
+        //akParameters["CreateSignature"] = "ABQABAEAq6WAkqJbA+YLtFJ80rJOYN6evWh2poC+/NIb7hebhTLffbpuKGaWnBtaxPs1qM6rtGyf5XJs1MKmqPIuJ7FZGqK1pnDofrbC5XWoV3Bzyl0uwM1rSLkL96VyCTU/v5QBA+CANqIKAQQ1iTNulE0yY63Lpe6A4s9cYf9XHpKEbYs6fr2q7QxASaJA+lsLkCvVih9Gw9eBrCqmoPkfpVr3Aw613NqEB44LGj3og0wOAjtHlXN0rt/cKTR85y1kaOKjoXPIHuIO7NEonioQ5FOomPJt7hodov5ozu32ZIkxxGMoVnOiQDZgC3Zml631YfBlUuQati81W2tFp9CUlZ6V+g==";
+
+        root["ID"] = "30";
+        root["TPMVersion"] = 2;
+        root["EKpub"] = ekPub;
+        akParameters["Public"] = Public;
+        akParameters["UseTCSDActivationFormat"] = false;
+        akParameters["CreateData"] = CreateData;
+        akParameters["CreateAttestation"] = CreateAttestation;
+        akParameters["CreateSignature"] = CreateSignature;
+
+        root["AK"] = akParameters;
+
+        std::string sendData = writer.write(root);
+
+        std::cout << sendData << std::endl;
+
+        curlpp::Cleanup cleaner;
+        curlpp::Easy request;
+
+        std::ostringstream response;
+
+        // Set the writer callback to enable cURL 
+        // to write result in a memory area
+        request.setOpt(new curlpp::options::WriteStream(&response));
+
+        // Setting the URL to retrive.
+        request.setOpt(new curlpp::options::Url("http://localhost:8080/initialChallenge"));
+
+        //std::list<std::string> header;
+        //header.push_back("Content-Type: application/octet-stream");
+
+        //request.setOpt(new curlpp::options::HttpHeader(header));
+
+        request.setOpt(new curlpp::options::PostFields(sendData));
+        request.setOpt(new curlpp::options::PostFieldSize(sendData.size()));
+
+        request.perform();
+
+        std::cout << "Response from server:" << std::endl;
+        std::cout << response.str() << std::endl;
+
+        Json::Reader reader;
+
+        Json::Value responseJson;
+
+        reader.parse(response.str(), responseJson);
+
+        std::cout << "Credential: " << responseJson["Encrypted Credential"]["Credential"].asString() << std::endl;
+        std::cout << "Secret: " << responseJson["Encrypted Credential"]["Secret"].asString() << std::endl;
+
+        return EXIT_SUCCESS;
+    }
+    catch (curlpp::LogicError& e) {
+        std::cout << e.what() << std::endl;
+    }
+    catch (curlpp::RuntimeError& e) {
+        std::cout << e.what() << std::endl;
+    }
 
     /*
     std::string filtered = pemFormatKey.substr(27, pemFormatKey.size() - 53);
