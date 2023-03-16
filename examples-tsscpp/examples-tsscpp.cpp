@@ -571,39 +571,39 @@ int main()
 
         std::cout << sendData << std::endl;
 
-        //curlpp::Cleanup cleaner;
-        //curlpp::Easy request;
+        curlpp::Cleanup cleaner;
+        curlpp::Easy request;
 
-        //std::ostringstream response;
+        std::ostringstream response;
 
-        //// Set the writer callback to enable cURL 
-        //// to write result in a memory area
-        //request.setOpt(new curlpp::options::WriteStream(&response));
+        // Set the writer callback to enable cURL 
+        // to write result in a memory area
+        request.setOpt(new curlpp::options::WriteStream(&response));
 
-        //// Setting the URL to retrive.
-        //request.setOpt(new curlpp::options::Url("http://localhost:8080/initialChallenge"));
+        // Setting the URL to retrive.
+        request.setOpt(new curlpp::options::Url("http://localhost:8080/initialChallenge"));
 
-        ////std::list<std::string> header;
-        ////header.push_back("Content-Type: application/octet-stream");
+        //std::list<std::string> header;
+        //header.push_back("Content-Type: application/octet-stream");
 
-        ////request.setOpt(new curlpp::options::HttpHeader(header));
+        //request.setOpt(new curlpp::options::HttpHeader(header));
 
-        //request.setOpt(new curlpp::options::PostFields(sendData));
-        //request.setOpt(new curlpp::options::PostFieldSize(sendData.size()));
+        request.setOpt(new curlpp::options::PostFields(sendData));
+        request.setOpt(new curlpp::options::PostFieldSize(sendData.size()));
 
-        //request.perform();
+        request.perform();
 
-        //std::cout << "Response from server:" << std::endl;
-        //std::cout << response.str() << std::endl;
+        std::cout << "Response from server:" << std::endl;
+        std::cout << response.str() << std::endl;
 
-        //Json::Reader reader;
+        Json::Reader reader;
 
-        //Json::Value responseJson;
+        Json::Value responseJson;
 
-        //reader.parse(response.str(), responseJson);
+        reader.parse(response.str(), responseJson);
 
-        //std::cout << "Credential: " << responseJson["Encrypted Credential"]["Credential"].asString() << std::endl;
-        //std::cout << "Secret: " << responseJson["Encrypted Credential"]["Secret"].asString() << std::endl;
+        std::cout << "Credential: " << responseJson["Encrypted Credential"]["Credential"].asString() << std::endl;
+        std::cout << "Secret: " << responseJson["Encrypted Credential"]["Secret"].asString() << std::endl;
 
         return EXIT_SUCCESS;
     }
