@@ -25,7 +25,7 @@ Tpm2 tpm;
 TpmTbsDevice deviceTbs;
 TpmTcpDevice deviceTcp;
 
-bool useSimulator = false;
+bool useSimulator = true;
 
 int InitTpm() {
     if (useSimulator) {
@@ -160,7 +160,7 @@ TPM_HANDLE MakeStoragePrimary(AUTH_SESSION* sess)
 }
 CreateResponse MakeChildSigningKey(TPM_HANDLE parent, bool restricted)
 {
-    TPMA_OBJECT restrictedAttribute = restricted ? TPMA_OBJECT::restricted : 0;
+    TPMA_OBJECT restrictedAttribute = TPMA_OBJECT::restricted;
 
     TPMT_PUBLIC templ(TPM_ALG_ID::SHA1,
         TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
@@ -432,26 +432,13 @@ void SigningPrimary()
 std::string getEkPublicPem(TpmCpp::CreatePrimaryResponse ek) {
     auto mod = ek.outPublic.unique->toBytes();
     auto rsaPublicKey = Botan::RSA_PublicKey(Botan::BigInt(mod.data(), mod.size()), 65537);
-
     auto pemFormatKey = Botan::X509::PEM_encode(rsaPublicKey);
     std::cout << pemFormatKey << std::endl;
-
+    
     pemFormatKey.erase(std::remove(pemFormatKey.begin(), pemFormatKey.end(), '\n'), pemFormatKey.cend());
 
-    return pemFormatKey.substr(26, pemFormatKey.size() - 52);
+    return pemFormatKey.substr(26, pemFormatKey.size() - 50);
 } // getEkPublicPem()
-
-std::string getAkPublicPem(TpmCpp::CreateResponse ak) {
-    auto mod = ak.outPublic.unique->toBytes();
-    auto rsaPublicKey = Botan::RSA_PublicKey(Botan::BigInt(mod.data(), mod.size()), 65537);
-
-    auto pemFormatKey = Botan::X509::PEM_encode(rsaPublicKey);
-    std::cout << pemFormatKey << std::endl;
-
-    pemFormatKey.erase(std::remove(pemFormatKey.begin(), pemFormatKey.end(), '\n'), pemFormatKey.cend());
-
-    return pemFormatKey.substr(26, pemFormatKey.size() - 52);
-} // getAkPublicPem()
 
 #include <openssl/bio.h>
 #include <openssl/buffer.h>
@@ -496,40 +483,62 @@ int main()
     //PrimaryKeys(); // working
     //SigningPrimary(); // working
     
-    auto ek = MakeEndorsementKey();
+    auto ek = MakeEndorsementKey();  
     //std::cout << getEkPublicPem(ek) << endl << std::endl;
 
-    TPM_HANDLE ekHandle = ek.handle;
+    TPM_HANDLE primaryKey = ek.handle;
 
-    auto ak = MakeChildSigningKey(ekHandle, true);
-    //cout << getAkPublicPem(ak) << endl;
+    auto ak = MakeChildSigningKey(primaryKey, true);
 
     cout << ak.ToString() << endl << endl;
 
-    auto sigKey = tpm.Load(ekHandle, ak.outPrivate, ak.outPublic);
+    auto sigKey = tpm.Load(primaryKey, ak.outPrivate, ak.outPublic);
 
-    auto keyInfo = tpm.Certify(sigKey, sigKey, tpm.GetRandom(32), TPMS_NULL_SIG_SCHEME());
+    TPMT_PUBLIC templ(TPM_ALG_ID::SHA1,
+        TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
+        | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth | TPMA_OBJECT::restricted,
+        {},  // No policy
+        TPMS_RSA_PARMS({}, TPMS_SCHEME_RSASSA(TPM_ALG_ID::SHA1), 2048, 65537),
+        TPM2B_PUBLIC_KEY_RSA());
 
-    cout << keyInfo.ToString() << endl << endl;
+    // Ask the TPM to create the key. For simplicity we will leave the other parameters
+    // (apart from the template) the same as for the storage key.
+    auto newSigKey = tpm.Create(primaryKey, {}, templ, {}, {});
+
+    TPM_HANDLE toCertify = tpm.Load(primaryKey, newSigKey.outPrivate, newSigKey.outPublic);
+
+    ByteVec nonce{ 5, 6, 7 };
+    auto createQuote = tpm.CertifyCreation(toCertify, toCertify, nonce, newSigKey.creationHash,
+        TPMS_NULL_SIG_SCHEME(), newSigKey.creationTicket);
+
+    cout << createQuote.ToString() << endl << endl;
 
     auto ekPub = getEkPublicPem(ek);
 
-    auto Public = base64_encode(ak.outPublic.toBytes());
+    auto Public = base64_encode(newSigKey.outPublic.toBytes());
     Public.erase(std::remove(Public.begin(), Public.end(), '\n'), Public.cend());
 
     cout << Public << endl << endl;
 
-    auto CreateData = base64_encode(ak.creationData.toBytes());
+    auto CreateData = base64_encode(newSigKey.creationData.toBytes());
     CreateData.erase(std::remove(CreateData.begin(), CreateData.end(), '\n'), CreateData.cend());
 
     cout << CreateData << endl << endl;
 
-    auto CreateAttestation = base64_encode(keyInfo.certifyInfo.toBytes());
+    auto CreateAttestation = base64_encode(createQuote.certifyInfo.toBytes());
     CreateAttestation.erase(std::remove(CreateAttestation.begin(), CreateAttestation.end(), '\n'), CreateAttestation.cend());
 
     cout << CreateAttestation << endl << endl;
 
-    auto CreateSignature = base64_encode(keyInfo.signature->toBytes());
+    ByteVec fullSigParams;
+    auto sigAlg = createQuote.signatureSigAlg();
+    fullSigParams.push_back(sigAlg >> 8);
+    fullSigParams.push_back(sigAlg & 0xff);
+    for (int i = 0; i < createQuote.signature->toBytes().size(); i++) {
+        fullSigParams.push_back(createQuote.signature->toBytes()[i]);
+    }
+
+    auto CreateSignature = base64_encode(fullSigParams);
     CreateSignature.erase(std::remove(CreateSignature.begin(), CreateSignature.end(), '\n'), CreateSignature.cend());
 
     cout << CreateSignature << endl << endl;
@@ -540,7 +549,7 @@ int main()
         Json::Value akParameters;
         //root["ID"] = "30";
         //root["TPMVersion"] = 2;
-        //root["EKpub"] = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAthSyFeVj8dWdDmJBfYP8ElsPfSna5zR7nDADTuqREKL5KTUAIZmw7JGsC19YP1K/m50M1NMTAyyIeqctTy1vn94vehBrSEotbIVyj/Z45rVDhCcx0Jn4EkjopaoM7xMgt9R/NOCyX8gXLU+F6Afr6lc7R9ob3MIOR+1z7QvnXSN+hMvh9m5dBBYTI+UsJ5w1+z+X69VQu0fGe4c2yL6Vw6SLY6/2lxGKpGTWdoFm+Nn/XojGqTOhPZiQ99T12InlWLkppH5bMVzLUIshaRJPN8rOnMwdkVuChOsNJ+eHExX8TcivIhBMHG1yTRABKEC+serDK/p4f047+XttwDcNNwIDAQAB";
+        //root["EKpub"] = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2FuIS+QMG8dyOTQ9kadzInTymMnmafXNAPAq37WjpH/essTDn+k4vTfW/QMs+8xs+2pe3GMgmKWBybcmUzAL/NueCRxCF4LuJHYyqYTjxK+zxRkZT6ZqMopyChTZ0qSp/EYYdd+9YB56vryQ2iBnJbxg7PSjMl6kAcvzjYK85U/sVAS6V+k+DruMu2gdB5rQgxg470tuPRN8tE+N6XHCUPPf5EqF9eLmBObvRuwr+FUKcEMqjOkBJPGJFoMypMs5vJzj40gtm14lNDn3B3rzsZ4Ww2DSHF1HTLRnKBbkM24gE2x9SFpK/yGbIH9H0xp+FbGvFg3/oZ0APcpH7sJz6wIDAQAB";
         //akParameters["Public"] = "AAEACwAFBHIAIJ3/y/NsODrmmfuYaNxty4nXFTiEvigDkiwSQVi/rSKuABAAFAAECAAAAAAAAQC9rmpxiytl2DgwlohkQbGTJ8tvUBRPIL37yhqYnh/fk86qdOFwr8PkZFIicMXt+bWXFDw55GRckfaMAvtNU9+Cnt+/4M8FAdmKT2vw7x9Dh94/VhCnWbJIqkP/mrlOKGS+MY5hBOBFa4bjOIuIPlX3sEb5C0HDnwbJf6wVYOw+gHgOC39vxxIGiqkgrK7YmahcWf3pof6C55I7kiGbr3E4vzcwGQNIMbGDewoO77RY5yb3M7vJRmJTbVbXx4U12lZCxCk4IddqOYUvp+xlx6WeoyyyuyUc8i1Gc3dMbUGf0DTjJKLd27G9uCb9MQWbcvBxS1ICc1kaA/gxR8zC3cqb";
         //akParameters["UseTCSDActivationFormat"] = false;
         //akParameters["CreateData"] = "AAAAAAAg47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFUBAAsAIgALOyDqlR1A7yIRtJUe4a8rxHtxVJItEjRTilRv/M5DzkYAIgAL2wSQnCKgLL1TGKUreXra2BFHEkr5koxLbxud+2xQuvsAAA==";
@@ -562,39 +571,39 @@ int main()
 
         std::cout << sendData << std::endl;
 
-        curlpp::Cleanup cleaner;
-        curlpp::Easy request;
+        //curlpp::Cleanup cleaner;
+        //curlpp::Easy request;
 
-        std::ostringstream response;
+        //std::ostringstream response;
 
-        // Set the writer callback to enable cURL 
-        // to write result in a memory area
-        request.setOpt(new curlpp::options::WriteStream(&response));
+        //// Set the writer callback to enable cURL 
+        //// to write result in a memory area
+        //request.setOpt(new curlpp::options::WriteStream(&response));
 
-        // Setting the URL to retrive.
-        request.setOpt(new curlpp::options::Url("http://localhost:8080/initialChallenge"));
+        //// Setting the URL to retrive.
+        //request.setOpt(new curlpp::options::Url("http://localhost:8080/initialChallenge"));
 
-        //std::list<std::string> header;
-        //header.push_back("Content-Type: application/octet-stream");
+        ////std::list<std::string> header;
+        ////header.push_back("Content-Type: application/octet-stream");
 
-        //request.setOpt(new curlpp::options::HttpHeader(header));
+        ////request.setOpt(new curlpp::options::HttpHeader(header));
 
-        request.setOpt(new curlpp::options::PostFields(sendData));
-        request.setOpt(new curlpp::options::PostFieldSize(sendData.size()));
+        //request.setOpt(new curlpp::options::PostFields(sendData));
+        //request.setOpt(new curlpp::options::PostFieldSize(sendData.size()));
 
-        request.perform();
+        //request.perform();
 
-        std::cout << "Response from server:" << std::endl;
-        std::cout << response.str() << std::endl;
+        //std::cout << "Response from server:" << std::endl;
+        //std::cout << response.str() << std::endl;
 
-        Json::Reader reader;
+        //Json::Reader reader;
 
-        Json::Value responseJson;
+        //Json::Value responseJson;
 
-        reader.parse(response.str(), responseJson);
+        //reader.parse(response.str(), responseJson);
 
-        std::cout << "Credential: " << responseJson["Encrypted Credential"]["Credential"].asString() << std::endl;
-        std::cout << "Secret: " << responseJson["Encrypted Credential"]["Secret"].asString() << std::endl;
+        //std::cout << "Credential: " << responseJson["Encrypted Credential"]["Credential"].asString() << std::endl;
+        //std::cout << "Secret: " << responseJson["Encrypted Credential"]["Secret"].asString() << std::endl;
 
         return EXIT_SUCCESS;
     }
