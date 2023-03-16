@@ -488,12 +488,6 @@ int main()
 
     TPM_HANDLE primaryKey = ek.handle;
 
-    auto ak = MakeChildSigningKey(primaryKey, true);
-
-    cout << ak.ToString() << endl << endl;
-
-    auto sigKey = tpm.Load(primaryKey, ak.outPrivate, ak.outPublic);
-
     TPMT_PUBLIC templ(TPM_ALG_ID::SHA256,
         TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
         | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth | TPMA_OBJECT::restricted,
