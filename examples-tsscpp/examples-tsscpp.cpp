@@ -72,7 +72,7 @@ void TestDifferentDataStructures()
         tpm.PCR_Event(pcrIndex, tpm.GetRandom(5));
 
         // Read PCR-0
-        vector<TPMS_PCR_SELECTION> pcrToRead{ TPMS_PCR_SELECTION(TPM_ALG_ID::SHA1, pcrIndex) };
+        vector<TPMS_PCR_SELECTION> pcrToRead{ TPMS_PCR_SELECTION(TPM_ALG_ID::SHA256, pcrIndex) };
 
         pcrVal = tpm.PCR_Read(pcrToRead);
     }
@@ -83,7 +83,7 @@ void TestDifferentDataStructures()
             tpm.PCR_Event(pcr, tpm.GetRandom(5));
         }
 
-        vector<TPMS_PCR_SELECTION> pcrToRead{ TPMS_PCR_SELECTION(TPM_ALG_ID::SHA1, pcrIndexes) };
+        vector<TPMS_PCR_SELECTION> pcrToRead{ TPMS_PCR_SELECTION(TPM_ALG_ID::SHA256, pcrIndexes) };
 
         pcrVal = tpm.PCR_Read(pcrToRead);
     }
@@ -122,7 +122,7 @@ void GenerateRandomNumbers() {
 void HMACSessions()
 {
     // Start a simple HMAC authorization session: no salt, no encryption, no bound-object.
-    AUTH_SESSION s = tpm.StartAuthSession(TPM_SE::HMAC, TPM_ALG_ID::SHA1);
+    AUTH_SESSION s = tpm.StartAuthSession(TPM_SE::HMAC, TPM_ALG_ID::SHA256);
 
     cout << "Session Infos:\n\n";
 
@@ -145,7 +145,7 @@ static const TPMT_SYM_DEF_OBJECT Aes128Cfb{ TPM_ALG_ID::AES, 128, TPM_ALG_ID::CF
 
 TPM_HANDLE MakeStoragePrimary(AUTH_SESSION* sess)
 {
-    TPMT_PUBLIC storagePrimaryTemplate(TPM_ALG_ID::SHA1,
+    TPMT_PUBLIC storagePrimaryTemplate(TPM_ALG_ID::SHA256,
         TPMA_OBJECT::decrypt | TPMA_OBJECT::restricted
         | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
         | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth,
@@ -162,11 +162,11 @@ CreateResponse MakeChildSigningKey(TPM_HANDLE parent, bool restricted)
 {
     TPMA_OBJECT restrictedAttribute = TPMA_OBJECT::restricted;
 
-    TPMT_PUBLIC templ(TPM_ALG_ID::SHA1,
+    TPMT_PUBLIC templ(TPM_ALG_ID::SHA256,
         TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
         | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth | restrictedAttribute,
         {},  // No policy
-        TPMS_RSA_PARMS({}, TPMS_SCHEME_RSASSA(TPM_ALG_ID::SHA1), 2048, 65537), // PKCS1.5
+        TPMS_RSA_PARMS({}, TPMS_SCHEME_RSASSA(TPM_ALG_ID::SHA256), 2048, 65537), // PKCS1.5
         TPM2B_PUBLIC_KEY_RSA());
 
     return tpm.Create(parent, {}, templ, {}, {});
@@ -176,7 +176,7 @@ CreateResponse MakeChildSigningKey(TPM_HANDLE parent, bool restricted)
 }
 TpmCpp::CreatePrimaryResponse MakeEndorsementKey()
 {
-    TPMT_PUBLIC storagePrimaryTemplate(TPM_ALG_ID::SHA1,
+    TPMT_PUBLIC storagePrimaryTemplate(TPM_ALG_ID::SHA256,
         TPMA_OBJECT::decrypt | TPMA_OBJECT::restricted
         | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
         | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth,
@@ -193,10 +193,10 @@ void RsaEncryptDecrypt()
     // This sample demostrates the use of the TPM for RSA operations.
 
     // We will make a key in the "{} hierarchy".
-    TPMT_PUBLIC primTempl(TPM_ALG_ID::SHA1,
+    TPMT_PUBLIC primTempl(TPM_ALG_ID::SHA256,
         TPMA_OBJECT::decrypt | TPMA_OBJECT::userWithAuth | TPMA_OBJECT::sensitiveDataOrigin,
         {},  // No policy
-        TPMS_RSA_PARMS({}, TPMS_SCHEME_OAEP(TPM_ALG_ID::SHA1), 2048, 65537),
+        TPMS_RSA_PARMS({}, TPMS_SCHEME_OAEP(TPM_ALG_ID::SHA256), 2048, 65537),
         TPM2B_PUBLIC_KEY_RSA());
 
     // Create the key
@@ -204,7 +204,7 @@ void RsaEncryptDecrypt()
 
     TPM_HANDLE& keyHandle = storagePrimary.handle;
 
-    ByteVec dataToEncrypt = TPM_HASH::FromHashOfString(TPM_ALG_ID::SHA1, "secret");
+    ByteVec dataToEncrypt = TPM_HASH::FromHashOfString(TPM_ALG_ID::SHA256, "secret");
     cout << "Data to encrypt: " << dataToEncrypt << endl;
 
     auto enc = tpm.RSA_Encrypt(keyHandle, dataToEncrypt, TPMS_NULL_ASYM_SCHEME(), {});
@@ -237,7 +237,7 @@ void RsaEncryptDecrypt()
 
 void Hash()
 {
-    vector<TPM_ALG_ID> hashAlgs = { TPM_ALG_ID::SHA1, TPM_ALG_ID::SHA256 };
+    vector<TPM_ALG_ID> hashAlgs = { TPM_ALG_ID::SHA256, TPM_ALG_ID::SHA256 };
     ByteVec accumulator;
     ByteVec data1{ 1, 2, 3, 4, 5, 6 };
 
@@ -294,13 +294,13 @@ void Hash()
     accumulator = Helpers::Concatenate(accumulator, data1);
 
     // Note that the handle is flushed by the TPM when the sequence is completed
-    auto initPcr = tpm.PCR_Read({ {TPM_ALG_ID::SHA1, 0} });
+    auto initPcr = tpm.PCR_Read({ {TPM_ALG_ID::SHA256, 0} });
     auto hashVal2 = tpm.EventSequenceComplete(TPM_HANDLE::Pcr(0), hashHandle, data1);
-    auto expected = Crypto::Hash(TPM_ALG_ID::SHA1, accumulator);
-    auto finalPcr = tpm.PCR_Read({ {TPM_ALG_ID::SHA1, 0} });
+    auto expected = Crypto::Hash(TPM_ALG_ID::SHA256, accumulator);
+    auto finalPcr = tpm.PCR_Read({ {TPM_ALG_ID::SHA256, 0} });
 
     // Is this what we expect?
-    TPM_HASH expectedPcr(TPM_ALG_ID::SHA1, initPcr.pcrValues[0]);
+    TPM_HASH expectedPcr(TPM_ALG_ID::SHA256, initPcr.pcrValues[0]);
     expectedPcr.Extend(expected);
 
     if (expectedPcr == finalPcr.pcrValues[0])
@@ -312,7 +312,7 @@ void PrimaryKeys()
 {
     // To create a primary key the TPM must be provided with a template.
     // This is for an RSA1024 signing key.
-    TPMT_PUBLIC templ(TPM_ALG_ID::SHA1,
+    TPMT_PUBLIC templ(TPM_ALG_ID::SHA256,
         TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
         | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth,
         {},  // No policy
@@ -380,7 +380,7 @@ void SigningPrimary()
     // To create a primary key the TPM must be provided with a template.
     // This is for an RSA1024 signing key.
     vector<BYTE> NullVec;
-    TPMT_PUBLIC templ(TPM_ALG_ID::SHA1,
+    TPMT_PUBLIC templ(TPM_ALG_ID::SHA256,
         TPMA_OBJECT::sign |
         TPMA_OBJECT::fixedParent |
         TPMA_OBJECT::fixedTPM |
@@ -389,7 +389,7 @@ void SigningPrimary()
         NullVec,
         TPMS_RSA_PARMS(
             TPMT_SYM_DEF_OBJECT(),
-            TPMS_SCHEME_RSASSA(TPM_ALG_ID::SHA1), 1024, 65537),
+            TPMS_SCHEME_RSASSA(TPM_ALG_ID::SHA256), 1024, 65537),
         TPM2B_PUBLIC_KEY_RSA(NullVec));
 
     // Set the use-auth for the key. Note the second parameter is NULL
@@ -412,7 +412,7 @@ void SigningPrimary()
     TPM_HANDLE& signKey = newPrimary.handle;
     signKey.SetAuth(userAuth);
 
-    TPMT_HA dataToSign = TPMT_HA::FromHashOfString(TPM_ALG_ID::SHA1, "abc");
+    TPMT_HA dataToSign = TPMT_HA::FromHashOfString(TPM_ALG_ID::SHA256, "abc");
 
     auto sig = tpm.Sign(signKey,
         dataToSign.digest,
@@ -494,11 +494,11 @@ int main()
 
     auto sigKey = tpm.Load(primaryKey, ak.outPrivate, ak.outPublic);
 
-    TPMT_PUBLIC templ(TPM_ALG_ID::SHA1,
+    TPMT_PUBLIC templ(TPM_ALG_ID::SHA256,
         TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
         | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth | TPMA_OBJECT::restricted,
         {},  // No policy
-        TPMS_RSA_PARMS({}, TPMS_SCHEME_RSASSA(TPM_ALG_ID::SHA1), 2048, 65537),
+        TPMS_RSA_PARMS({}, TPMS_SCHEME_RSASSA(TPM_ALG_ID::SHA256), 2048, 65537),
         TPM2B_PUBLIC_KEY_RSA());
 
     // Ask the TPM to create the key. For simplicity we will leave the other parameters
