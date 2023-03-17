@@ -486,9 +486,9 @@ int main()
     auto ek = MakeEndorsementKey();  
     //std::cout << getEkPublicPem(ek) << endl << std::endl;
 
-    TPM_HANDLE primaryKey = ek.handle;
+    TPM_HANDLE ekHandle = ek.handle;
 
-    TPMT_PUBLIC templ(TPM_ALG_ID::SHA256,
+    TPMT_PUBLIC akTemplate(TPM_ALG_ID::SHA256,
         TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
         | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth | TPMA_OBJECT::restricted,
         {},  // No policy
@@ -497,50 +497,50 @@ int main()
 
     // Ask the TPM to create the key. For simplicity we will leave the other parameters
     // (apart from the template) the same as for the storage key.
-    auto newSigKey = tpm.Create(primaryKey, {}, templ, {}, {});
+    auto ak = tpm.Create(ekHandle, {}, akTemplate, {}, {});
 
-    TPM_HANDLE toCertify = tpm.Load(primaryKey, newSigKey.outPrivate, newSigKey.outPublic);
+    TPM_HANDLE akHandle = tpm.Load(ekHandle, ak.outPrivate, ak.outPublic);
 
     ByteVec nonce{ 5, 6, 7 };
-    auto createQuote = tpm.CertifyCreation(toCertify, toCertify, nonce, newSigKey.creationHash,
-        TPMS_NULL_SIG_SCHEME(), newSigKey.creationTicket);
+    auto certify = tpm.CertifyCreation(akHandle, akHandle, nonce, ak.creationHash,
+        TPMS_NULL_SIG_SCHEME(), ak.creationTicket);
 
-    cout << createQuote.ToString() << endl << endl;
+    cout << certify.ToString() << endl << endl;
 
-    auto ekPub = getEkPublicPem(ek);
+    auto ekPubContent = getEkPublicPem(ek);
 
-    auto Public = base64_encode(newSigKey.outPublic.toBytes());
-    Public.erase(std::remove(Public.begin(), Public.end(), '\n'), Public.cend());
+    auto publicContent = base64_encode(ak.outPublic.toBytes());
+    publicContent.erase(std::remove(publicContent.begin(), publicContent.end(), '\n'), publicContent.cend());
 
-    cout << Public << endl << endl;
+    cout << publicContent << endl << endl;
 
-    auto CreateData = base64_encode(newSigKey.creationData.toBytes());
-    CreateData.erase(std::remove(CreateData.begin(), CreateData.end(), '\n'), CreateData.cend());
+    auto createDataContent = base64_encode(ak.creationData.toBytes());
+    createDataContent.erase(std::remove(createDataContent.begin(), createDataContent.end(), '\n'), createDataContent.cend());
 
-    cout << CreateData << endl << endl;
+    cout << createDataContent << endl << endl;
 
-    auto CreateAttestation = base64_encode(createQuote.certifyInfo.toBytes());
-    CreateAttestation.erase(std::remove(CreateAttestation.begin(), CreateAttestation.end(), '\n'), CreateAttestation.cend());
+    auto createAttestationContent = base64_encode(certify.certifyInfo.toBytes());
+    createAttestationContent.erase(std::remove(createAttestationContent.begin(), createAttestationContent.end(), '\n'), createAttestationContent.cend());
 
-    cout << CreateAttestation << endl << endl;
+    cout << createAttestationContent << endl << endl;
 
-    ByteVec fullSigParams;
-    auto sigAlg = createQuote.signatureSigAlg();
-    fullSigParams.push_back(sigAlg >> 8);
-    fullSigParams.push_back(sigAlg & 0xff);
-    for (int i = 0; i < createQuote.signature->toBytes().size(); i++) {
-        fullSigParams.push_back(createQuote.signature->toBytes()[i]);
+    ByteVec fullSignatureContent;
+    auto signatureAlgorithm = certify.signatureSigAlg();
+    fullSignatureContent.push_back(signatureAlgorithm >> 8);
+    fullSignatureContent.push_back(signatureAlgorithm & 0xff);
+    for (int i = 0; i < certify.signature->toBytes().size(); i++) {
+        fullSignatureContent.push_back(certify.signature->toBytes()[i]);
     }
 
-    auto CreateSignature = base64_encode(fullSigParams);
-    CreateSignature.erase(std::remove(CreateSignature.begin(), CreateSignature.end(), '\n'), CreateSignature.cend());
+    auto createSignatureContent = base64_encode(fullSignatureContent);
+    createSignatureContent.erase(std::remove(createSignatureContent.begin(), createSignatureContent.end(), '\n'), createSignatureContent.cend());
 
-    cout << CreateSignature << endl << endl;
+    cout << createSignatureContent << endl << endl;
 
     try {
-        Json::FastWriter writer;
-        Json::Value root;
-        Json::Value akParameters;
+        Json::FastWriter jsonWriter;
+        Json::Value jsonRoot;
+        Json::Value jsonAttestationParameters;
         //root["ID"] = "30";
         //root["TPMVersion"] = 2;
         //root["EKpub"] = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2FuIS+QMG8dyOTQ9kadzInTymMnmafXNAPAq37WjpH/essTDn+k4vTfW/QMs+8xs+2pe3GMgmKWBybcmUzAL/NueCRxCF4LuJHYyqYTjxK+zxRkZT6ZqMopyChTZ0qSp/EYYdd+9YB56vryQ2iBnJbxg7PSjMl6kAcvzjYK85U/sVAS6V+k+DruMu2gdB5rQgxg470tuPRN8tE+N6XHCUPPf5EqF9eLmBObvRuwr+FUKcEMqjOkBJPGJFoMypMs5vJzj40gtm14lNDn3B3rzsZ4Ww2DSHF1HTLRnKBbkM24gE2x9SFpK/yGbIH9H0xp+FbGvFg3/oZ0APcpH7sJz6wIDAQAB";
@@ -550,18 +550,18 @@ int main()
         //akParameters["CreateAttestation"] = "/1RDR4AaACIAC4R3fzhZJN2pKoO1d7P8IbshfdUXz9+xccZxmRmiyHoeAAAAAAACSPaE7AbYzWWe4Ms+ASQgsS94JzAEACIAC/WcfhxfIDZ83PTSHI6hd53xMiuxNAId589Un8PEc6FsACB9xuiDscZkcaz2KUoBUhQBNi4ijSBI04jKkUlZNyd9Aw==";
         //akParameters["CreateSignature"] = "ABQABAEAq6WAkqJbA+YLtFJ80rJOYN6evWh2poC+/NIb7hebhTLffbpuKGaWnBtaxPs1qM6rtGyf5XJs1MKmqPIuJ7FZGqK1pnDofrbC5XWoV3Bzyl0uwM1rSLkL96VyCTU/v5QBA+CANqIKAQQ1iTNulE0yY63Lpe6A4s9cYf9XHpKEbYs6fr2q7QxASaJA+lsLkCvVih9Gw9eBrCqmoPkfpVr3Aw613NqEB44LGj3og0wOAjtHlXN0rt/cKTR85y1kaOKjoXPIHuIO7NEonioQ5FOomPJt7hodov5ozu32ZIkxxGMoVnOiQDZgC3Zml631YfBlUuQati81W2tFp9CUlZ6V+g==";
 
-        root["ID"] = "30";
-        root["TPMVersion"] = 2;
-        root["EKpub"] = ekPub;
-        akParameters["Public"] = Public;
-        akParameters["UseTCSDActivationFormat"] = false;
-        akParameters["CreateData"] = CreateData;
-        akParameters["CreateAttestation"] = CreateAttestation;
-        akParameters["CreateSignature"] = CreateSignature;
+        jsonRoot["ID"] = "30";
+        jsonRoot["TPMVersion"] = 2;
+        jsonRoot["EKpub"] = ekPubContent;
+        jsonAttestationParameters["Public"] = publicContent;
+        jsonAttestationParameters["UseTCSDActivationFormat"] = false;
+        jsonAttestationParameters["CreateData"] = createDataContent;
+        jsonAttestationParameters["CreateAttestation"] = createAttestationContent;
+        jsonAttestationParameters["CreateSignature"] = createSignatureContent;
 
-        root["AK"] = akParameters;
+        jsonRoot["AK"] = jsonAttestationParameters;
 
-        std::string sendData = writer.write(root);
+        std::string sendData = jsonWriter.write(jsonRoot);
 
         std::cout << sendData << std::endl;
 
